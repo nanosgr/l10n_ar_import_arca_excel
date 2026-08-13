@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_l10n_ar_arca_import_history_tree" model="ir.ui.view">
+        <field name="name">l10n_ar.arca.import.history.tree</field>
+        <field name="model">l10n_ar.arca.import.history</field>
+        <field name="arch" type="xml">
+            <list string="Historial de Importaciones" create="0">
+                <field name="create_date" string="Fecha"/>
+                <field name="name"/>
+                <field name="import_type"/>
+                <field name="user_id"/>
+                <field name="move_count"/>
+                <field name="filename"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_l10n_ar_arca_import_history_form" model="ir.ui.view">
+        <field name="name">l10n_ar.arca.import.history.form</field>
+        <field name="model">l10n_ar.arca.import.history</field>
+        <field name="arch" type="xml">
+            <form string="Historial de Importación" create="false" edit="false">
+                <header>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_moves" type="object" class="oe_stat_button" icon="fa-list-alt" invisible="move_count == 0">
+                            <field name="move_count" widget="statinfo" string="Facturas"/>
+                        </button>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="create_date"/>
+                            <field name="user_id"/>
+                        </group>
+                        <group>
+                            <field name="import_type"/>
+                            <field name="filename"/>
+                            <field name="file_data" filename="filename" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Facturas Creadas">
+                            <field name="move_ids" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+    
+    <record id="action_l10n_ar_arca_import_history" model="ir.actions.act_window">
+        <field name="name">Historial de Importaciones</field>
+        <field name="res_model">l10n_ar.arca.import.history</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

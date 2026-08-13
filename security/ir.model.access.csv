@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_l10n_ar_arca_import_wizard,l10n_ar.arca.import.wizard,model_l10n_ar_arca_import_wizard,account.group_account_manager,1,1,1,1
+access_l10n_ar_arca_import_line,l10n_ar.arca.import.line,model_l10n_ar_arca_import_line,account.group_account_manager,1,1,1,1
+access_l10n_ar_arca_import_history,l10n_ar.arca.import.history,model_l10n_ar_arca_import_history,account.group_account_manager,1,1,1,1
+access_l10n_ar_arca_import_partner_filter,l10n_ar.arca.import.partner.filter,model_l10n_ar_arca_import_partner_filter,account.group_account_manager,1,1,1,1
+access_l10n_ar_arca_import_wizard_user,l10n_ar.arca.import.wizard,model_l10n_ar_arca_import_wizard,account.group_account_user,1,1,1,1
+access_l10n_ar_arca_import_line_user,l10n_ar.arca.import.line,model_l10n_ar_arca_import_line,account.group_account_user,1,1,1,1
+access_l10n_ar_arca_import_partner_filter_user,l10n_ar.arca.import.partner.filter,model_l10n_ar_arca_import_partner_filter,account.group_account_user,1,1,1,1
+access_l10n_ar_arca_import_history_user,l10n_ar.arca.import.history,model_l10n_ar_arca_import_history,account.group_account_user,1,1,1,0

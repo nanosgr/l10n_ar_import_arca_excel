@@ -1,0 +1,21 @@
+/* Desactivar el border del widget porque el padre ya lo tiene */
+.o_analytic_forced_container .o_tags_input {
+    border: none !important;
+    width: 100% !important;
+    min-height: 34px !important;
+    padding: 0 !important;
+    background: transparent !important;
+}
+
+.o_analytic_forced_container .o_field_analytic_distribution,
+.o_analytic_forced_container .o_analytic_distribution {
+    width: 100% !important;
+    display: block !important;
+}
+
+/* Forzar también el input interno */
+.o_analytic_forced_container .o_field_analytic_distribution input {
+    width: 100% !important;
+    min-width: 150px !important;
+    flex: 1 !important;
+}

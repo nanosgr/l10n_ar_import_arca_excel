@@ -1,0 +1,474 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_l10n_ar_import_arca_line_form" model="ir.ui.view">
+        <field name="name">l10n_ar.arca.import.line.form</field>
+        <field name="model">l10n_ar.arca.import.line</field>
+        <field name="arch" type="xml">
+            <form string="Detalle de Línea">
+                <header>
+                    <field name="status" widget="statusbar" statusbar_visible="ready,exists,error"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="document_type_name" class="oe_inline"/> <field name="number" class="oe_inline"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="date"/>
+                            <field name="point_of_sale"/>
+                            <field name="cuit"/>
+                            <field name="partner_name"/>
+                            <field name="partner_id" string="Contacto (Sistema)" options="{'no_open': True}"/>
+                            <field name="journal_id" readonly="1" options="{'no_open': True}"/>
+                        </group>
+                        <group>
+                            <field name="amount_total"/>
+                            <field name="currency_id" invisible="1"/>
+                            <field name="to_import" widget="boolean_toggle" readonly="status != 'ready'"/>
+                            <field name="move_id" invisible="not move_id" options="{'no_open': True}"/>
+                            <field name="preview_desc"/>
+                        </group>
+                    </group>
+                    <group string="Detalle del Error" invisible="status != 'error'" class="alert alert-danger" role="alert">
+                        <field name="error_desc" nolabel="1"/>
+                    </group>
+                    <group string="Percepciones y Otros Tributos (discriminados)" invisible="source_format != 'libro_compras'">
+                        <group>
+                            <field name="perc_otros_imp_nacionales" invisible="not perc_otros_imp_nacionales"/>
+                            <field name="perc_iibb" invisible="not perc_iibb"/>
+                            <field name="imp_municipales" invisible="not imp_municipales"/>
+                        </group>
+                        <group>
+                            <field name="perc_iva" invisible="not perc_iva"/>
+                            <field name="imp_internos" invisible="not imp_internos"/>
+                            <field name="otros_tributos" invisible="not otros_tributos"/>
+                            <field name="credito_fiscal_computable" invisible="not credito_fiscal_computable"/>
+                        </group>
+                    </group>
+                    <field name="source_format" invisible="1"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_l10n_ar_import_arca_partner_filter_tree" model="ir.ui.view">
+        <field name="name">l10n_ar.arca.import.partner.filter.tree</field>
+        <field name="model">l10n_ar.arca.import.partner.filter</field>
+        <field name="arch" type="xml">
+            <list editable="bottom" create="0" delete="0">
+                <field name="selected" widget="boolean_toggle"/>
+                <field name="name" string="Razón Social (Archivo)"/>
+                <field name="partner_id" string="Contacto (Sistema)" widget="many2one_button" options="{'no_open': True}"/>
+                <field name="invoice_count" sum="Total Comprobantes"/>
+                <field name="amount_total" sum="Monto Total" decoration-bf="1"/>
+                <field name="currency_id" column_invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_l10n_ar_import_arca_line_tree_v2" model="ir.ui.view">
+        <field name="name">l10n_ar.arca.import.line.tree.v2</field>
+        <field name="model">l10n_ar.arca.import.line</field>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <list string="Líneas a Importar" create="0" delete="0" 
+                decoration-warning="is_refund and status in ('ready', 'exists')" 
+                decoration-info="otros_tributos > 0 and not is_refund and status in ('ready', 'exists')" 
+                decoration-danger="status == 'error'" 
+                decoration-muted="not is_refund and status == 'exists' and otros_tributos == 0">
+                <field name="to_import" widget="boolean_toggle" readonly="status != 'ready'"/>
+                <field name="status" widget="badge" 
+                       decoration-success="status == 'exists'" 
+                       decoration-info="status == 'ready'" 
+                       decoration-danger="status == 'error'"/>
+                <field name="date" readonly="1"/>
+                <field name="document_type_name" optional="hide"/>
+                <field name="point_of_sale" optional="hide"/>
+                <field name="number" optional="hide"/>
+                <field name="partner_id" optional="show" string="Contacto (Sistema)"/>
+                <field name="cuit" optional="show"/>
+                <field name="partner_name" optional="hide"/>
+                <field name="is_refund" column_invisible="1"/>
+                <field name="otros_tributos" column_invisible="1"/>
+                <field name="amount_total" readonly="1" decoration-danger="is_refund"/>
+                <field name="preview_desc" readonly="1" optional="show" string="Vista Previa"/>
+                <field name="currency_id" column_invisible="1"/>
+                <field name="source_format" column_invisible="1"/>
+                <field name="perc_otros_imp_nacionales" optional="hide" readonly="1" string="Perc. Otros Imp. Nac."/>
+                <field name="perc_iibb" optional="hide" readonly="1" string="Perc. IIBB"/>
+                <field name="imp_municipales" optional="hide" readonly="1" string="Imp. Municipales"/>
+                <field name="perc_iva" optional="hide" readonly="1" string="Perc. IVA"/>
+                <field name="imp_internos" optional="hide" readonly="1" string="Imp. Internos"/>
+                <field name="credito_fiscal_computable" optional="hide" readonly="1" string="Créd. Fiscal Computable"/>
+                <field name="error_desc" optional="hide" readonly="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_l10n_ar_import_arca_wizard_form" model="ir.ui.view">
+        <field name="name">l10n_ar.arca.import.wizard.form</field>
+        <field name="model">l10n_ar.arca.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Importación de Facturas de ARCA">
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="upload,review,done"/>
+                </header>
+                <sheet>
+                    <group invisible="state != 'upload'">
+                        <group>
+                            <field name="import_type" widget="radio" invisible="not file_data or is_auto_detected"/>
+                            <field name="file_data" filename="filename"/>
+                            <field name="filename" invisible="1"/>
+                            <field name="is_auto_detected" invisible="1"/>
+                            <div class="text-muted" style="font-size: 0.8rem;">
+                                Formatos admitidos: Excel "Mis Comprobantes" (.xlsx) o CSV "Libro de Compras" (.csv, solo Compras).
+                            </div>
+                            <field name="pre_analysis_message" invisible="not pre_analysis_message" class="text-info"/>
+                        </group>
+                        <group>
+                            <field name="journal_purchase_id" options="{'no_create': True}" invisible="not file_data or import_type != 'in_invoice'" required="import_type == 'in_invoice' and file_data"/>
+                            <field name="journal_sale_id" options="{'no_create': True}" invisible="not file_data or import_type != 'out_invoice'" required="import_type == 'out_invoice' and file_data"/>
+                        </group>
+                    </group>
+
+                    <div invisible="state != 'review'">
+
+                        <!-- ═══ HEADER ROW COMPACTO ═══ -->
+                        <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+
+                            <!-- IZQUIERDA: Badge tipo + Nombre diario + POS -->
+                            <div class="d-flex align-items-center gap-3">
+                                <!-- TIPO -->
+                                <div class="d-flex flex-column" style="margin-top: -8px;">
+                                    <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem; margin-bottom: 2px;">Tipo</small>
+                                    <span invisible="import_type != 'in_invoice'"
+                                          class="badge text-bg-warning px-2 py-1" style="font-size: 0.85rem; border-radius: 4px;">
+                                        <i class="fa fa-shopping-cart me-1"/> Compras
+                                    </span>
+                                    <span invisible="import_type != 'out_invoice'"
+                                          class="badge text-bg-info px-2 py-1 text-white" style="font-size: 0.85rem; border-radius: 4px;">
+                                        <i class="fa fa-tag me-1"/> Ventas
+                                    </span>
+                                </div>
+                                
+                                <!-- DIVIDER -->
+                                <div style="border-left: 1px solid #dee2e6; height: 35px;"/>
+
+                                <!-- DIARIO -->
+                                <div class="d-flex flex-column" style="margin-top: -8px;">
+                                    <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem; margin-bottom: 2px;">Diario</small>
+                                    <div class="d-flex align-items-center">
+                                        <i class="fa fa-book text-muted me-1"/>
+                                        <span class="fw-bold text-dark" style="font-size: 0.95rem;">
+                                            <field name="journal_name_display"/>
+                                        </span>
+                                        <span invisible="not journal_pos_display or import_type != 'out_invoice'"
+                                              class="badge bg-light text-dark border px-2 py-1 ms-2"
+                                              style="font-size: 0.72rem;">
+                                            Pto. Venta: <field name="journal_pos_display"/>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- DERECHA: Contador comprobantes compacto -->
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="cae_status_mode" invisible="1"/>
+
+                                <!-- CAE NO DISPONIBLE -->
+                                <div invisible="cae_status_mode != 'not_available'"
+                                     class="d-flex justify-content-center align-items-center gap-2 px-2 rounded border border-danger text-danger bg-white"
+                                     style="white-space: nowrap; height: 32px;"
+                                     title='Activa la validación del CAE en "Verificar la validez de las facturas de proveedor en AFIP" en Configuración > Ajustes, si desea importar el CAE automaticamente'>
+                                    <i class="fa fa-exclamation-triangle"/>
+                                    <span class="small fw-bold text-uppercase">Cae no activado</span>
+                                </div>
+
+                                <!-- CAE DISPONIBLE / REQUERIDO -->
+                                <div invisible="cae_status_mode != 'available'"
+                                     class="d-flex justify-content-center align-items-center gap-2 px-2 rounded border border-success text-success bg-white"
+                                     style="white-space: nowrap; height: 32px;"
+                                     title="Se importará el CAE para cada comprobante. Su vencimiento se calculará automáticamente sumando 10 días a la fecha de emisión.">
+                                    <i class="fa fa-check"/>
+                                    <span class="small fw-bold text-uppercase">Cae Activado</span>
+                                </div>
+
+                                <!-- Contador -->
+                                <div class="d-flex justify-content-center align-items-center gap-2 px-3 rounded border"
+                                     style="border-color: #28a745 !important; background-color: #f0fff4; white-space: nowrap; height: 32px;">
+                                    <i class="fa fa-file-text-o text-success"/>
+                                    <span class="fw-bold text-success" style="font-size: 1rem; font-family: monospace; line-height: 1;">
+                                        <field name="total_lines"/>
+                                    </span>
+                                    <span class="text-success small fw-bold text-uppercase">comprobantes</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- ═══ FIN HEADER ROW ═══ -->
+
+                        <!-- METADATA BLOCK -->
+                        <div class="d-flex align-items-center gap-3 bg-light rounded border mb-3 px-3"
+                             style="height: 36px;">
+
+                            <!-- PERIODO -->
+                            <div class="d-flex align-items-center gap-1 border-end pe-3" style="white-space: nowrap;">
+                                <i class="fa fa-calendar-check-o text-primary" style="font-size: 0.75rem;" title="Período"/>
+                                <small class="text-muted fw-bold text-uppercase" style="font-size: 0.6rem;">Período</small>
+                                <span class="fw-semibold text-dark" style="font-size: 0.78rem;">
+                                    <field name="period_start"/> → <field name="period_end"/>
+                                </span>
+                            </div>
+
+                            <!-- MES -->
+                            <div class="d-flex align-items-center gap-1 border-end pe-3" style="white-space: nowrap;">
+                                <i class="fa fa-calendar text-success" style="font-size: 0.75rem;" title="Mes"/>
+                                <small class="text-muted fw-bold text-uppercase" style="font-size: 0.6rem;">Mes</small>
+                                <span class="fw-semibold text-dark text-capitalize" style="font-size: 0.78rem;">
+                                    <field name="period_month_year"/>
+                                </span>
+                            </div>
+
+                            <!-- DISTRIBUCION ANALITICA -->
+                            <div class="d-flex align-items-center gap-1 border-end pe-3 flex-grow-1">
+                                <i class="fa fa-bar-chart" style="font-size: 0.75rem; flex-shrink: 0; color: #6f42c1;" title="Distribución Analítica"/>
+                                <small class="text-muted fw-bold text-uppercase" style="font-size: 0.6rem; white-space: nowrap;">Analítica</small>
+                                <field name="analytic_precision" invisible="1"/>
+                                <div style="width: 1px; height: 1px; overflow: hidden; opacity: 0; position: absolute;">
+                                    <field name="focus_holder" default_focus="1"/>
+                                </div>
+                                <div class="o_analytic_forced_container flex-grow-1">
+                                    <field name="analytic_distribution" widget="analytic_distribution"
+                                           style="width: 100% !important;"
+                                           options="{'force_applicability': True}"
+                                           nolabel="1"/>
+                                </div>
+                            </div>
+
+                            <!-- CUENTA CONTABLE -->
+                            <div class="d-flex align-items-center gap-1 flex-grow-1">
+                                <i class="fa fa-book text-info" style="font-size: 0.75rem; flex-shrink: 0;" title="Cuenta Contable"/>
+                                <small class="text-muted fw-bold text-uppercase" style="font-size: 0.6rem; white-space: nowrap;">Cuenta</small>
+                                <field name="account_id" options="{'no_create': True}" style="flex: 1;"/>
+                            </div>
+
+                            <!-- OTROS TRIBUTOS -->
+                            <div class="d-flex align-items-center gap-1 border-start ps-3 flex-grow-1" invisible="not has_otros_tributos">
+                                <i class="fa fa-percent text-danger" style="font-size: 0.75rem; flex-shrink: 0;" title="Otros Tributos"/>
+                                <small class="text-muted fw-bold text-uppercase" style="font-size: 0.6rem; white-space: nowrap;">Otros Tributos</small>
+                                <field name="tax_domain_type" invisible="1"/>
+                                <field name="has_otros_tributos" invisible="1"/>
+                                <field name="tax_other_tributes_id" options="{'no_create': True}" required="has_otros_tributos" domain="[('company_id', '=', company_id), ('type_tax_use', '=', tax_domain_type)]" style="flex: 1; min-width: 100px;"/>
+                            </div>
+
+                        </div>
+
+                        <!-- DYNAMIC TOTALS SUMMARY -->
+                        <div class="row mt-2 border border-2 border-danger-subtle rounded py-2 mx-0 shadow-sm bg-white align-items-center" invisible="state != 'review'">
+                            <!-- Facturas -->
+                            <div class="col d-flex flex-column border-end px-3">
+                                <div class="d-flex align-items-center gap-1">
+                                    <i class="fa fa-circle" style="font-size: 0.5rem; color: #7f5e7f;" title="Facturas"/>
+                                    <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem;">Facturas</small>
+                                </div>
+                                <field name="summary_facturas" class="fw-bold text-dark" style="font-size: 1.1rem;"/>
+                            </div>
+                            <!-- Notas de Crédito -->
+                            <div class="col d-flex flex-column border-end px-3">
+                                <div class="d-flex align-items-center gap-1">
+                                    <i class="fa fa-circle" style="font-size: 0.5rem; color: #dfa04c;" title="Notas de Crédito"/>
+                                    <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem;">Notas de Crédito</small>
+                                </div>
+                                <field name="summary_ncs" class="fw-bold text-dark" style="font-size: 1.1rem;"/>
+                            </div>
+                            <!-- IVA 21% -->
+                            <div class="col d-flex flex-column border-end px-3">
+                                <div class="d-flex align-items-center gap-1">
+                                    <i class="fa fa-circle text-info" style="font-size: 0.5rem;" title="IVA 21%"/>
+                                    <small class="text-info fw-bold text-uppercase" style="font-size: 0.65rem;">IVA 21%</small>
+                                </div>
+                                <field name="summary_iva_21" class="fw-bold text-dark" style="font-size: 1.1rem;"/>
+                            </div>
+                            <!-- IVA 10.5% -->
+                            <div class="col d-flex flex-column border-end px-3">
+                                <div class="d-flex align-items-center gap-1">
+                                    <i class="fa fa-circle text-info" style="font-size: 0.5rem;" title="IVA 10,5%"/>
+                                    <small class="text-info fw-bold text-uppercase" style="font-size: 0.65rem;">IVA 10,5%</small>
+                                </div>
+                                <field name="summary_iva_105" class="fw-bold text-dark" style="font-size: 1.1rem;"/>
+                            </div>
+                            <!-- Otros Tributos -->
+                            <div class="col d-flex flex-column px-3">
+                                <div class="d-flex align-items-center gap-1">
+                                    <i class="fa fa-circle text-danger" style="font-size: 0.5rem;" title="Otros Tributos"/>
+                                    <small class="text-muted fw-bold text-uppercase" style="font-size: 0.65rem;">Otros Tributos</small>
+                                </div>
+                                <field name="summary_otros_tributos" class="fw-bold text-dark" style="font-size: 1.1rem;"/>
+                            </div>
+                        </div>
+
+                        <!-- DASHBOARD FILTER CARDS -->
+                        <div class="row feature_list mt-2 mb-3">
+                            <!-- TODOS -->
+                            <div class="col-3">
+                                <button name="action_set_filter_all" type="object"
+                                        class="btn btn-primary w-100 shadow-lg d-flex align-items-center justify-content-center gap-2"
+                                        style="padding: 6px 12px;"
+                                        invisible="view_filter != 'all'">
+                                    <span class="fw-bold text-white" style="font-size: 1.3rem; font-family: monospace; line-height: 1;"><field name="count_all"/></span>
+                                    <span class="text-white text-uppercase fw-bold" style="font-size: 0.7rem;"><i class="fa fa-list-ul me-1"/> Total</span>
+                                </button>
+                                <button name="action_set_filter_all" type="object"
+                                        class="btn bg-primary-subtle text-primary w-100 shadow-sm d-flex align-items-center justify-content-center gap-2 border"
+                                        style="padding: 6px 12px;"
+                                        invisible="view_filter == 'all'">
+                                    <span class="fw-bold" style="font-size: 1.3rem; font-family: monospace; line-height: 1;"><field name="count_all"/></span>
+                                    <span class="text-uppercase fw-bold" style="font-size: 0.7rem;"><i class="fa fa-list-ul me-1"/> Total</span>
+                                </button>
+                            </div>
+
+                            <!-- LISTOS -->
+                            <div class="col-3">
+                                <button name="action_set_filter_ready" type="object"
+                                        class="btn btn-success w-100 shadow-lg d-flex align-items-center justify-content-center gap-2"
+                                        style="padding: 6px 12px;"
+                                        invisible="view_filter != 'ready'">
+                                    <span class="fw-bold text-white" style="font-size: 1.3rem; font-family: monospace; line-height: 1;"><field name="count_ready"/></span>
+                                    <span class="text-white text-uppercase fw-bold" style="font-size: 0.7rem;"><i class="fa fa-check me-1"/> Listos</span>
+                                </button>
+                                <button name="action_set_filter_ready" type="object"
+                                        class="btn bg-success-subtle text-success w-100 shadow-sm d-flex align-items-center justify-content-center gap-2 border"
+                                        style="padding: 6px 12px;"
+                                        invisible="view_filter == 'ready'">
+                                    <span class="fw-bold" style="font-size: 1.3rem; font-family: monospace; line-height: 1;"><field name="count_ready"/></span>
+                                    <span class="text-uppercase fw-bold" style="font-size: 0.7rem;"><i class="fa fa-check me-1"/> Listos</span>
+                                </button>
+                            </div>
+
+                            <!-- ERRORES -->
+                            <div class="col-3">
+                                <button name="action_set_filter_error" type="object"
+                                        class="btn btn-danger w-100 shadow-lg d-flex align-items-center justify-content-center gap-2"
+                                        style="padding: 6px 12px;"
+                                        invisible="view_filter != 'error'">
+                                    <span class="fw-bold text-white" style="font-size: 1.3rem; font-family: monospace; line-height: 1;"><field name="count_error"/></span>
+                                    <span class="text-white text-uppercase fw-bold" style="font-size: 0.7rem;"><i class="fa fa-exclamation-triangle me-1"/> Errores</span>
+                                </button>
+                                <button name="action_set_filter_error" type="object"
+                                        class="btn bg-danger-subtle text-danger w-100 shadow-sm d-flex align-items-center justify-content-center gap-2 border"
+                                        style="padding: 6px 12px;"
+                                        invisible="view_filter == 'error'">
+                                    <span class="fw-bold" style="font-size: 1.3rem; font-family: monospace; line-height: 1;"><field name="count_error"/></span>
+                                    <span class="text-uppercase fw-bold" style="font-size: 0.7rem;"><i class="fa fa-exclamation-triangle me-1"/> Errores</span>
+                                </button>
+                            </div>
+
+                            <!-- EXISTENTES -->
+                            <div class="col-3">
+                                <button name="action_set_filter_exists" type="object"
+                                        class="btn btn-warning w-100 shadow-lg d-flex align-items-center justify-content-center gap-2"
+                                        style="padding: 6px 12px;"
+                                        invisible="view_filter != 'exists'">
+                                    <span class="fw-bold text-white" style="font-size: 1.3rem; font-family: monospace; line-height: 1;"><field name="count_exists"/></span>
+                                    <span class="text-white text-uppercase fw-bold" style="font-size: 0.7rem;"><i class="fa fa-copy me-1"/> Existen</span>
+                                </button>
+                                <button name="action_set_filter_exists" type="object"
+                                        class="btn bg-warning-subtle text-warning w-100 shadow-sm d-flex align-items-center justify-content-center gap-2 border"
+                                        style="padding: 6px 12px;"
+                                        invisible="view_filter == 'exists'">
+                                    <span class="fw-bold" style="font-size: 1.3rem; font-family: monospace; line-height: 1;"><field name="count_exists"/></span>
+                                    <span class="text-uppercase fw-bold" style="font-size: 0.7rem;"><i class="fa fa-copy me-1"/> Existen</span>
+                                </button>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- PARALLEL BLOCKS LAYOUT -->
+                    <div class="row mt-4" invisible="state != 'review'">
+                        <!-- COLUMN 1: CONTACTS -->
+                        <div class="col-6">
+                            <div class="card shadow-sm">
+                                <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
+                                    <h5 class="m-0 text-primary"><i class="fa fa-users me-2"/>Contactos</h5>
+                                    <div>
+                                        <field name="show_select_all_partners" invisible="1"/>
+                                        <field name="show_deselect_all_partners" invisible="1"/>
+                                        <button name="action_select_all_partners" type="object" string="Sel. Todos" class="btn btn-sm btn-info me-1" invisible="not show_select_all_partners"/>
+                                        <button name="action_deselect_all_partners" type="object" string="Desel. Todos" class="btn btn-sm btn-secondary" invisible="not show_deselect_all_partners"/>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0" style="height: 500px; overflow-y: auto;">
+                                    <field name="partner_filter_ids" nolabel="1">
+                                        <list editable="bottom" create="0" delete="0">
+                                            <field name="selected" widget="boolean_toggle"/>
+                                            <field name="name" string="Razón Social (Archivo)"/>
+                                            <field name="partner_id" string="Contacto (Sistema)" widget="many2one_avatar" options="{'no_create': True}"/>
+                                            <field name="invoice_count" string="# Compr..." optional="show"/>
+                                            <field name="amount_total" string="Total" optional="show"/>
+                                        </list>
+                                    </field>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- COLUMN 2: DOCUMENTS -->
+                        <div class="col-6">
+                            <div class="card shadow-sm">
+                                <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
+                                    <h5 class="m-0 text-primary"><i class="fa fa-file-text-o me-2"/>Comprobantes</h5>
+                                    <div invisible="not has_selected_partners or has_missing_partners_selection">
+                                        <field name="show_select_all_ready" invisible="1"/>
+                                        <field name="show_deselect_all_ready" invisible="1"/>
+                                        <button name="action_select_all_visible_lines" type="object" string="Sel. Listos" class="btn btn-sm btn-success me-1" invisible="not show_select_all_ready"/>
+                                        <button name="action_deselect_all_visible_lines" type="object" string="Desel. Listos" class="btn btn-sm btn-secondary" invisible="not show_deselect_all_ready"/>
+                                    </div>
+                                </div>
+                                <div class="card-body p-0 position-relative" style="height: 500px; overflow-y: auto;">
+                                    <div invisible="not has_selected_partners or has_missing_partners_selection">
+                                        <field name="visible_line_ids" nolabel="1" context="{'tree_view_ref': 'l10n_ar_import_arca_excel.view_l10n_ar_import_arca_line_tree_v2', 'form_view_ref': 'l10n_ar_import_arca_excel.view_l10n_ar_import_arca_line_form'}"/>
+                                    </div>
+                                    <div invisible="has_selected_partners and not has_missing_partners_selection" class="d-flex flex-column justify-content-center align-items-center h-100 text-muted">
+                                        <i class="fa fa-arrow-left fa-3x mb-3" title="Seleccione contactos de la izquierda"/>
+                                        <p>Seleccione contactos de la izquierda</p>
+                                        <p invisible="not has_missing_partners_selection" class="text-warning fw-bold">
+                                            <i class="fa fa-exclamation-triangle"/> Hay contactos sin mapear.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ELECTRONIC JOURNAL ALERT -->
+                    <div invisible="not is_electronic_journal or state != 'review'"
+                         class="alert d-flex align-items-center mb-3 mt-3 shadow-sm border"
+                         role="alert" style="background-color: #fff3cd; border-color: #ffecb5 !important;">
+                        <i class="fa fa-exclamation-triangle fa-2x text-warning me-3" title="Advertencia"/>
+                        <div>
+                            <h6 class="alert-heading fw-bold mb-1 text-dark">Operación No Válida: Diario Electrónico</h6>
+                            <p class="mb-0 text-dark small" style="line-height: 1.4;">
+                                No se pueden importar comprobantes en un Punto de Venta Electrónico (Web Service).<br/>
+                                <i class="fa fa-pencil me-1"/> <strong>Opción 1:</strong> La carga la hace manual transcribiendo (Recomendado).<br/>
+                                <i class="fa fa-cog me-1"/> <strong>Opción 2:</strong> Modifique la configuración del diario a 'Factura en línea / Preimpreso' temporalmente.
+                            </p>
+                        </div>
+                    </div>
+
+                    <footer>
+                        <field name="is_electronic_journal" invisible="1"/>
+                        <field name="can_import" invisible="1"/>
+                        <field name="has_missing_partners_selection" invisible="1"/>
+                        <field name="has_selected_partners" invisible="1"/>
+                        <button name="action_analyze" string="Analizar Excel" type="object" class="btn-primary" invisible="state != 'upload' or not file_data"/>
+                        <button name="action_import" string="Confirmar Importación" type="object" class="btn-primary" invisible="state != 'review' or not can_import or has_missing_partners_selection or not has_selected_partners or is_electronic_journal" default_focus="1"/>
+                        <button name="action_create_partners" string="Crear Contactos Inexistentes" type="object" class="btn-primary" invisible="state != 'review' or not has_missing_partners_selection"/>
+                        <button name="action_back" string="Volver" type="object" class="btn-secondary" invisible="state != 'review'"/>
+                        <button string="Salir" class="btn-secondary" special="cancel"/>
+                    </footer>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>

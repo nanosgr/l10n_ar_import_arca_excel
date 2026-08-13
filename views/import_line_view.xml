@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_l10n_ar_arca_import_line_tree" model="ir.ui.view">
+        <field name="name">l10n_ar.arca.import.line.tree</field>
+        <field name="model">l10n_ar.arca.import.line</field>
+        <field name="arch" type="xml">
+            <list create="0" delete="0" editable="bottom" decoration-danger="status == 'error'" decoration-muted="not is_refund and status == 'exists'" decoration-warning="is_refund and status in ('ready', 'exists')" decoration-success="not is_refund and status == 'ready'">
+                <field name="to_import" widget="boolean_toggle" readonly="status != 'ready'"/>
+                <field name="date" readonly="1"/>
+                <field name="document_type_name" readonly="1"/>
+                <field name="point_of_sale" readonly="1"/>
+                <field name="number" readonly="1"/>
+                <field name="cuit" readonly="1"/>
+                <field name="partner_name" readonly="1"/>
+                <field name="is_refund" column_invisible="1"/>
+                <field name="amount_total" readonly="1" decoration-danger="is_refund"/>
+                <field name="currency_id" column_invisible="1"/>
+                <field name="journal_id" optional="show" readonly="1"/>
+                <field name="partner_id" optional="show" readonly="1"/>
+                <field name="status" widget="badge" decoration-danger="status == 'error'" decoration-muted="status == 'exists'" decoration-success="status == 'ready'" readonly="1"/>
+                <field name="error_desc" optional="hide" readonly="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_l10n_ar_arca_import_line_form" model="ir.ui.view">
+        <field name="name">l10n_ar.arca.import.line.form</field>
+        <field name="model">l10n_ar.arca.import.line</field>
+        <field name="arch" type="xml">
+            <form string="Detalle de Línea" create="0" edit="0" delete="0">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="date" readonly="1"/>
+                            <field name="document_type_name" readonly="1"/>
+                            <field name="point_of_sale" readonly="1"/>
+                            <field name="number" readonly="1"/>
+                            <field name="cuit" readonly="1"/>
+                            <field name="afip_auth_code" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="partner_name" readonly="1"/>
+                            <field name="is_refund" invisible="1"/>
+                            <field name="amount_total" readonly="1" decoration-danger="is_refund"/>
+                            <field name="currency_id" invisible="1"/>
+                            <field name="journal_id" readonly="1"/>
+                            <field name="partner_id" readonly="1"/>
+                            <field name="preview_desc" readonly="1"/>
+                            <field name="move_id" readonly="1" options="{'no_create': True}" invisible="not move_id" decoration-danger="1" widget="many2one_button"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="status" readonly="1" widget="badge" decoration-danger="status == 'error'" decoration-muted="status == 'exists'" decoration-success="status == 'ready'"/>
+                        <field name="error_desc" readonly="1" invisible="status != 'error'"/>
+                        <field name="invoice_values" invisible="1"/>
+                    </group>
+                    <group string="Percepciones y Otros Tributos (discriminados)" invisible="source_format != 'libro_compras'">
+                        <field name="perc_otros_imp_nacionales" readonly="1" invisible="not perc_otros_imp_nacionales"/>
+                        <field name="perc_iibb" readonly="1" invisible="not perc_iibb"/>
+                        <field name="imp_municipales" readonly="1" invisible="not imp_municipales"/>
+                        <field name="perc_iva" readonly="1" invisible="not perc_iva"/>
+                        <field name="imp_internos" readonly="1" invisible="not imp_internos"/>
+                        <field name="otros_tributos" readonly="1" invisible="not otros_tributos"/>
+                        <field name="credito_fiscal_computable" readonly="1" invisible="not credito_fiscal_computable"/>
+                    </group>
+                    <field name="source_format" invisible="1"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>

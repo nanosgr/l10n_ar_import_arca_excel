@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_l10n_ar_import_arca_wizard" model="ir.actions.act_window">
+        <field name="name">Importación de Facturas de ARCA</field>
+        <field name="res_model">l10n_ar.arca.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_action_import_arca_root"
+              name="Importar de ARCA"
+              parent="account.menu_finance_entries"
+              sequence="110">
+        <menuitem id="menu_action_import_arca_wizard"
+                  name="Nueva Importación"
+                  action="action_l10n_ar_import_arca_wizard"
+                  sequence="10"/>
+        <menuitem id="menu_action_import_arca_history"
+                  name="Historial"
+                  action="action_l10n_ar_arca_import_history"
+                  sequence="20"/>
+    </menuitem>
+</odoo>
