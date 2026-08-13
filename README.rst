@@ -14,9 +14,6 @@ L10n Ar Import Arca Excel
 .. |badge2| image:: https://img.shields.io/badge/licence-LGPL--3-blue.png
     :target: http://www.gnu.org/licenses/lgpl-3.0-standalone.html
     :alt: License: LGPL-3
-.. |badge3| image:: https://img.shields.io/badge/github-Crumges%2Fl10n_ar_import_arca_excel-lightgray.png?logo=github
-    :target: https://github.com/Crumges/l10n_ar_import_arca_excel/tree/18.0
-    :alt: Crumges/l10n_ar_import_arca_excel
 
 |badge1| |badge2| |badge3| 
 
@@ -65,24 +62,19 @@ Modo de Uso 🛠️
 6.  Revise la vista previa de las líneas a importar. El sistema marcará en **Verde** las listas, en **Gris** las que ya existen, y en **Rojo** las que tienen errores.
 7.  Haga clic en **Confirmar Importación**.
 
-Bug Tracker
-===========
-
-Bugs are tracked on `GitHub Issues <https://github.com/Crumges/l10n_ar_import_arca_excel/issues>`_.
-
 Credits
 =======
 
 Authors
 ~~~~~~~
 
-* Crumges
+* Vikingo Software
 
 Maintainers
 ~~~~~~~~~~~
 
-This module is maintained by Crumges.
+This module is maintained by Vikingo Software.
 
-.. image:: https://crumges.com/logo.png
-   :alt: Crumges
-   :target: https://crumges.com
+.. image:: https://vikingosoftware.com/logo.png
+   :alt: Vikingo Software
+   :target: https://vikingosoftware.com/
