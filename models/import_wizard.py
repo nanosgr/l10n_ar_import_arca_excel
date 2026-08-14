@@ -215,7 +215,7 @@ class L10nArImportArcaWizard(models.TransientModel):
     
     account_id = fields.Many2one('account.account', string='Cuenta Contable', domain="[('deprecated', '=', False)]")
     tax_other_tributes_id = fields.Many2one(
-        'account.tax', string='Otros Tributos', check_company=True,
+        'account.tax', string='Impuesto Otros Tributos', check_company=True,
         help="Impuesto aplicado a las filas con monto en la columna 'Otros Tributos'"
     )
 
@@ -757,8 +757,9 @@ class L10nArImportArcaWizard(models.TransientModel):
         coincida exactamente con el importe declarado por ARCA en el 'Libro
         de Compras' (que ARCA calcula sobre una base distinta a la de esa
         única línea, por lo que el % nominal del impuesto no reproduce ese
-        valor). Ajusta la contrapartida (línea de Proveedores) para mantener
-        el asiento balanceado. """
+        valor). 'declared_amount' viene en la moneda del comprobante (ARS o
+        USD si es en moneda extranjera). Ajusta la contrapartida (línea de
+        Proveedores) para mantener el asiento balanceado. """
         tax_line = move.line_ids.filtered(lambda l: l.tax_line_id == tax)[:1]
         counterpart = move.line_ids.filtered(
             lambda l: l.account_id.account_type in ('liability_payable', 'asset_receivable'))[:1]
@@ -768,15 +769,20 @@ class L10nArImportArcaWizard(models.TransientModel):
         def _debit_credit(balance):
             return {'debit': balance, 'credit': 0.0} if balance >= 0 else {'debit': 0.0, 'credit': -balance}
 
-        sign = 1 if tax_line.balance >= 0 else -1
-        new_balance = sign * declared_amount
-        delta = new_balance - tax_line.balance
-        new_counterpart_balance = counterpart.balance - delta
+        rate = move.invoice_currency_rate or 1.0
+        sign = 1 if tax_line.amount_currency >= 0 else -1
+        new_amount_currency = sign * declared_amount
+        new_balance = new_amount_currency / rate
+
+        delta_balance = new_balance - tax_line.balance
+        delta_amount_currency = new_amount_currency - tax_line.amount_currency
+        new_counterpart_balance = counterpart.balance - delta_balance
+        new_counterpart_amount_currency = counterpart.amount_currency - delta_amount_currency
 
         tax_line.with_context(check_move_validity=False).write(
-            {**_debit_credit(new_balance), 'amount_currency': new_balance})
+            {**_debit_credit(new_balance), 'amount_currency': new_amount_currency})
         counterpart.with_context(check_move_validity=False).write(
-            {**_debit_credit(new_counterpart_balance), 'amount_currency': new_counterpart_balance})
+            {**_debit_credit(new_counterpart_balance), 'amount_currency': new_counterpart_amount_currency})
 
         move._compute_amount()
         if hasattr(move, '_compute_tax_totals'):
@@ -893,6 +899,13 @@ class L10nArImportArcaWizard(models.TransientModel):
                     return None
                 return _row[idx]
 
+            def fval(name):
+                # Las Notas de Crédito vienen con los importes en negativo en el
+                # archivo; el signo del comprobante ya lo determina el 'Tipo de
+                # Comprobante' (columna 2 -> is_refund_line/move_type), así que
+                # todo importe numérico se toma siempre en valor absoluto.
+                return abs(_safe_float(val(name)))
+
             if not val('Fecha de Emisión'):
                 continue
 
@@ -930,7 +943,7 @@ class L10nArImportArcaWizard(models.TransientModel):
             cuit = self._normalize_cuit(val('Nro. Doc. Vendedor'))
             partner_name = val('Denominación Vendedor') or 'Desconocido'
 
-            amount_total = _safe_float(val('Importe Total'))
+            amount_total = fval('Importe Total')
             moneda = (val('Moneda Original') or '').strip().upper()
 
             status = 'ready'
@@ -941,7 +954,32 @@ class L10nArImportArcaWizard(models.TransientModel):
                 status = 'error'
                 error_msgs.append("Falta seleccionar Diario de Compras.")
 
-            if moneda not in ('PES', '$', 'ARS', ''):
+            # --- Moneda extranjera (USD/DOL) ---
+            # El 'Libro de Compras' expresa los importes en la moneda original del
+            # comprobante (no en pesos), e informa el tipo de cambio de ARCA (pesos
+            # por dólar) en la columna 'Tipo de Cambio'. El resto de las columnas
+            # numéricas de la fila quedan entonces en esa misma moneda.
+            invoice_currency = company_currency
+            invoice_currency_rate = 1.0
+            if moneda in ('DOL', 'USD', 'U$S', 'U$'):
+                usd_currency = self.env['res.currency'].with_context(active_test=False).search(
+                    [('name', '=', 'USD')], limit=1)
+                tipo_cambio = fval('Tipo de Cambio')
+                if not usd_currency:
+                    status = 'error'
+                    error_msgs.append("No se encontró la moneda 'USD' en el sistema.")
+                elif not usd_currency.active:
+                    status = 'error'
+                    error_msgs.append("La moneda 'USD' está inactiva. Actívela en Contabilidad > Configuración > Monedas.")
+                elif not tipo_cambio:
+                    status = 'error'
+                    error_msgs.append("Comprobante en USD sin 'Tipo de Cambio' informado en el archivo.")
+                else:
+                    invoice_currency = usd_currency
+                    # invoice_currency_rate en Odoo convierte de moneda de compañía (ARS)
+                    # a moneda del comprobante (USD): 1 ARS = (1/tipo_cambio) USD.
+                    invoice_currency_rate = 1.0 / tipo_cambio
+            elif moneda not in ('PES', '$', 'ARS', ''):
                 status = 'error'
                 error_msgs.append(
                     f"Comprobante en moneda extranjera ({moneda or '?'}). No soportado en esta versión, requiere carga manual.")
@@ -982,9 +1020,9 @@ class L10nArImportArcaWizard(models.TransientModel):
             rate_line_index = {}
 
             for rate, neto_col, iva_col in LIBRO_COMPRAS_TAX_RATE_COLUMNS:
-                amount_neto = _safe_float(val(neto_col))
+                amount_neto = fval(neto_col)
                 declared_components_total += amount_neto
-                declared_iva_amount = _safe_float(val(iva_col)) if iva_col else 0.0
+                declared_iva_amount = fval(iva_col) if iva_col else 0.0
                 if iva_col:
                     declared_components_total += declared_iva_amount
                 if not amount_neto:
@@ -997,7 +1035,7 @@ class L10nArImportArcaWizard(models.TransientModel):
 
                 # --- Corroboración: IVA calculado por Odoo vs. declarado por ARCA ---
                 if iva_col:
-                    computed = tax.compute_all(amount_neto, currency=company_currency, quantity=1.0)
+                    computed = tax.compute_all(amount_neto, currency=invoice_currency, quantity=1.0)
                     computed_iva_amount = sum(t['amount'] for t in computed['taxes'])
                     if abs(computed_iva_amount - declared_iva_amount) > 0.10:
                         status = 'error'
@@ -1014,7 +1052,7 @@ class L10nArImportArcaWizard(models.TransientModel):
                 })
                 rate_line_index[rate] = (len(invoice_lines_data) - 1, amount_neto)
 
-            amount_ng = _safe_float(val('Importe No Gravado'))
+            amount_ng = fval('Importe No Gravado')
             if amount_ng:
                 tax_ng = self._get_tax_by_xmlid_or_name(
                     'IVA No Gravado', type_tax_use, 'ri_tax_vat_no_gravado_compras')
@@ -1030,7 +1068,7 @@ class L10nArImportArcaWizard(models.TransientModel):
                     'name': 'Conceptos No Gravados'
                 })
 
-            amount_ex = _safe_float(val('Importe Exento'))
+            amount_ex = fval('Importe Exento')
             if amount_ex:
                 tax_ex = self._get_tax_by_xmlid_or_name(
                     'IVA Exento', type_tax_use, 'ri_tax_vat_exento_compras')
@@ -1060,11 +1098,11 @@ class L10nArImportArcaWizard(models.TransientModel):
             tribute_amounts = {}
             tribute_total = 0.0
             for field_name, col_name, _label in LIBRO_COMPRAS_OTHER_TRIBUTES_COLUMNS:
-                amount = _safe_float(val(col_name))
+                amount = fval(col_name)
                 tribute_amounts[field_name] = amount
                 tribute_total += amount
 
-            credito_fiscal_computable = _safe_float(val('Crédito Fiscal Computable'))
+            credito_fiscal_computable = fval('Crédito Fiscal Computable')
 
             # --- Impuestos Municipales / Internos: mismo tratamiento que un Neto
             # Gravado IVA (línea propia, sin impuesto asociado, misma cuenta
@@ -1175,6 +1213,8 @@ class L10nArImportArcaWizard(models.TransientModel):
                 'journal_id': journal.id if journal else False,
                 'l10n_latam_document_type_id': doc_type.id if doc_type else False,
                 'l10n_latam_document_number': f"{pos_int:05d}-{num_int:08d}",
+                'currency_id': invoice_currency.id,
+                'invoice_currency_rate': invoice_currency_rate,
                 'invoice_line_ids': [(0, 0, line) for line in invoice_lines_data],
                 '_forced_tax_amounts': forced_tax_amounts,
             }
@@ -1195,7 +1235,7 @@ class L10nArImportArcaWizard(models.TransientModel):
                 'partner_id': partner.id if partner else False,
                 'journal_id': journal.id if journal else False,
                 'amount_total': amount_total,
-                'currency_id': company_currency.id,
+                'currency_id': invoice_currency.id,
                 'status': status,
                 'error_desc': '<br/>'.join(error_msgs) if error_msgs else False,
                 'invoice_values': json.dumps(invoice_vals),
@@ -1211,8 +1251,8 @@ class L10nArImportArcaWizard(models.TransientModel):
                 'imp_municipales': tribute_amounts['imp_municipales'],
                 'perc_iva': tribute_amounts['perc_iva'],
                 'imp_internos': tribute_amounts['imp_internos'],
-                'iva_21_amount': _safe_float(val('Importe IVA 21%')),
-                'iva_105_amount': _safe_float(val('Importe IVA 10,5%')),
+                'iva_21_amount': fval('Importe IVA 21%'),
+                'iva_105_amount': fval('Importe IVA 10,5%'),
             })
 
             if partner_name not in unique_partners:
