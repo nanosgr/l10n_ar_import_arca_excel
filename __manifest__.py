@@ -1,6 +1,6 @@
 {
     'name': 'L10n Ar Import Arca Excel - Importación de Mis Comprobantes',
-    'version': '18.0.1.13.1',
+    'version': '18.0.1.13.2',
     'category': 'Accounting',
     'summary': 'Importe masivamente facturas de compra y venta desde Excel/CSV de ARCA. Automatice la carga de datos y evite errores manuales.',
     'description': """
@@ -30,14 +30,14 @@ Uso
 
 Autor
 -----
-*   Crumges
+*   Vikingo Software
 
 Mantenedor
 ----------
-Este módulo es mantenido por Crumges.
+Este módulo es mantenido por Vikingo Software.
 """,
-    'author': 'Crumges',
-    'website': 'https://crumges.com',
+    'author': 'Vikingo Software',
+    'website': 'https://vikingosoftware.com',
     'license': 'LGPL-3',
     'depends': [
         'base',
@@ -61,5 +61,5 @@ Este módulo es mantenido por Crumges.
     'images': ['static/description/icon.png'],
     'installable': True,
     'application': False,
-    'maintainers': ['Crumges'],
+    'maintainers': ['Vikingo Software'],
 }

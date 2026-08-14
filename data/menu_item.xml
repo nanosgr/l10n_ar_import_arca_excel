@@ -19,9 +19,16 @@
                   name="Historial"
                   action="action_l10n_ar_arca_import_history"
                   sequence="20"/>
-        <menuitem id="menu_action_import_arca_tax_config"
-                  name="Configuración de Impuestos"
-                  action="action_l10n_ar_arca_tax_config"
-                  sequence="30"/>
     </menuitem>
+
+    <!-- Configuración de impuestos ARCA: vive en Contabilidad > Configuración
+         > Contabilidad (junto a Impuestos/Posiciones Fiscales), restringida a
+         account.group_account_manager para que usuarios con permisos bajos
+         no puedan ver ni tocar qué impuesto se aplica en el import automático. -->
+    <menuitem id="menu_action_import_arca_tax_config"
+              name="Configuración de Impuestos ARCA"
+              parent="account.account_account_menu"
+              action="action_l10n_ar_arca_tax_config"
+              groups="account.group_account_manager"
+              sequence="6"/>
 </odoo>

@@ -8,4 +8,3 @@ access_l10n_ar_arca_import_line_user,l10n_ar.arca.import.line,model_l10n_ar_arca
 access_l10n_ar_arca_import_partner_filter_user,l10n_ar.arca.import.partner.filter,model_l10n_ar_arca_import_partner_filter,account.group_account_user,1,1,1,1
 access_l10n_ar_arca_import_history_user,l10n_ar.arca.import.history,model_l10n_ar_arca_import_history,account.group_account_user,1,1,1,0
 access_l10n_ar_arca_tax_config,l10n_ar.arca.tax.config,model_l10n_ar_arca_tax_config,account.group_account_manager,1,1,1,1
-access_l10n_ar_arca_tax_config_user,l10n_ar.arca.tax.config,model_l10n_ar_arca_tax_config,account.group_account_user,1,0,0,0
