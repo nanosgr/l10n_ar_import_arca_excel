@@ -910,6 +910,8 @@ class L10nArImportArcaWizard(models.TransientModel):
 
         company_currency = self.env.company.currency_id
         type_tax_use = 'purchase'
+        tax_config = self.env['l10n_ar.arca.tax.config'].search(
+            [('company_id', '=', self.company_id.id)], limit=1)
         unique_partners = {}
         lines_values = []
 
@@ -923,12 +925,19 @@ class L10nArImportArcaWizard(models.TransientModel):
                     return None
                 return _row[idx]
 
+            # Divisor de moneda extranjera: el 'Libro de Compras' expresa TODOS
+            # los importes de la fila en pesos, aún en comprobantes en moneda
+            # extranjera. Se ajusta más abajo (una vez leído 'Tipo de Cambio')
+            # a valores distintos de 1.0 para esos casos; fval() lo aplica de
+            # forma transparente al resto de las columnas numéricas de la fila.
+            conversion_divisor = 1.0
+
             def fval(name):
                 # Las Notas de Crédito vienen con los importes en negativo en el
                 # archivo; el signo del comprobante ya lo determina el 'Tipo de
                 # Comprobante' (columna 2 -> is_refund_line/move_type), así que
                 # todo importe numérico se toma siempre en valor absoluto.
-                return abs(_safe_float(val(name)))
+                return abs(_safe_float(val(name))) / conversion_divisor
 
             if not val('Fecha de Emisión'):
                 continue
@@ -967,7 +976,6 @@ class L10nArImportArcaWizard(models.TransientModel):
             cuit = self._normalize_cuit(val('Nro. Doc. Vendedor'))
             partner_name = val('Denominación Vendedor') or 'Desconocido'
 
-            amount_total = fval('Importe Total')
             moneda = (val('Moneda Original') or '').strip().upper()
 
             status = 'ready'
@@ -979,16 +987,19 @@ class L10nArImportArcaWizard(models.TransientModel):
                 error_msgs.append("Falta seleccionar Diario de Compras.")
 
             # --- Moneda extranjera (USD/DOL) ---
-            # El 'Libro de Compras' expresa los importes en la moneda original del
-            # comprobante (no en pesos), e informa el tipo de cambio de ARCA (pesos
-            # por dólar) en la columna 'Tipo de Cambio'. El resto de las columnas
-            # numéricas de la fila quedan entonces en esa misma moneda.
+            # El 'Libro de Compras' expresa TODOS los importes de la fila en
+            # pesos, incluso en comprobantes en moneda extranjera. Para
+            # reconstruir el importe real en moneda extranjera hay que dividir
+            # cada columna numérica por el tipo de cambio de ARCA (columna
+            # 'Tipo de Cambio', pesos por dólar) - de ahí 'conversion_divisor',
+            # que fval() ya aplica a partir de este punto. Se lee 'Tipo de
+            # Cambio' sin pasar por fval() para no dividirlo por sí mismo.
             invoice_currency = company_currency
             invoice_currency_rate = 1.0
             if moneda in ('DOL', 'USD', 'U$S', 'U$'):
                 usd_currency = self.env['res.currency'].with_context(active_test=False).search(
                     [('name', '=', 'USD')], limit=1)
-                tipo_cambio = fval('Tipo de Cambio')
+                tipo_cambio = abs(_safe_float(val('Tipo de Cambio')))
                 if not usd_currency:
                     status = 'error'
                     error_msgs.append("No se encontró la moneda 'USD' en el sistema.")
@@ -1003,10 +1014,13 @@ class L10nArImportArcaWizard(models.TransientModel):
                     # invoice_currency_rate en Odoo convierte de moneda de compañía (ARS)
                     # a moneda del comprobante (USD): 1 ARS = (1/tipo_cambio) USD.
                     invoice_currency_rate = 1.0 / tipo_cambio
+                    conversion_divisor = tipo_cambio
             elif moneda not in ('PES', '$', 'ARS', ''):
                 status = 'error'
                 error_msgs.append(
                     f"Comprobante en moneda extranjera ({moneda or '?'}). No soportado en esta versión, requiere carga manual.")
+
+            amount_total = fval('Importe Total')
 
             partners_with_cuit = self.env['res.partner'].search([
                 ('vat', '=', cuit),
@@ -1182,21 +1196,25 @@ class L10nArImportArcaWizard(models.TransientModel):
                     })
 
             if tribute_amounts['perc_otros_imp_nacionales']:
-                tax_gan = self._get_percepcion_tax(TAX_NAME_PERC_GANANCIAS, type_tax_use, ilike_fallback='Gananc')
+                tax_gan = (tax_config.tax_ganancias_id
+                           or self._get_percepcion_tax(TAX_NAME_PERC_GANANCIAS, type_tax_use, ilike_fallback='Gananc'))
                 _attach_percepcion(general_max_rate, tax_gan, tribute_amounts['perc_otros_imp_nacionales'], 'Percepción de Ganancias')
 
             if tribute_amounts['perc_iibb']:
-                tax_iibb = self._get_percepcion_tax(TAX_NAME_PERC_IIBB, type_tax_use, ilike_fallback='IIBB')
+                tax_iibb = (tax_config.tax_iibb_id
+                            or self._get_percepcion_tax(TAX_NAME_PERC_IIBB, type_tax_use, ilike_fallback='IIBB'))
                 _attach_percepcion(general_max_rate, tax_iibb, tribute_amounts['perc_iibb'], 'Percepción de IIBB Mendoza')
 
             perc_iva_total = tribute_amounts['perc_iva'] + tribute_amounts['otros_tributos']
             if perc_iva_total:
                 if general_max_rate == 10.5:
-                    perc_iva_rate, perc_iva_target = 1.5, 10.5
+                    configured_tax = tax_config.tax_perc_iva_105_id
+                    fallback_rate, perc_iva_target = 1.5, 10.5
                 else:
-                    perc_iva_rate = 3.0
+                    configured_tax = tax_config.tax_perc_iva_21_id
+                    fallback_rate = 3.0
                     perc_iva_target = 21.0 if 21.0 in rate_line_index else general_max_rate
-                tax_perc_iva = self._get_percepcion_iva_tax(perc_iva_rate, type_tax_use)
+                tax_perc_iva = configured_tax or self._get_percepcion_iva_tax(fallback_rate, type_tax_use)
                 _attach_percepcion(perc_iva_target, tax_perc_iva, perc_iva_total, 'Percepción de IVA')
 
             # --- Reconciliación del Importe Total contra sus componentes discriminados ---
