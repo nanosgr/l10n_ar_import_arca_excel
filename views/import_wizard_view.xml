@@ -241,7 +241,7 @@
                                 <div class="o_analytic_forced_container flex-grow-1">
                                     <field name="analytic_distribution" widget="analytic_distribution"
                                            style="width: 100% !important;"
-                                           options="{'force_applicability': True}"
+                                           options="{'force_applicability': 'optional'}"
                                            nolabel="1"/>
                                 </div>
                             </div>
@@ -447,7 +447,7 @@
                          role="alert" style="background-color: #fff3cd; border-color: #ffecb5 !important;">
                         <i class="fa fa-exclamation-triangle fa-2x text-warning me-3" title="Advertencia"/>
                         <div>
-                            <h6 class="alert-heading fw-bold mb-1 text-dark">Operación No Válida: Diario Electrónico</h6>
+                            <h6 class="fw-bold mb-1 text-dark">Operación No Válida: Diario Electrónico</h6>
                             <p class="mb-0 text-dark small" style="line-height: 1.4;">
                                 No se pueden importar comprobantes en un Punto de Venta Electrónico (Web Service).<br/>
                                 <i class="fa fa-pencil me-1"/> <strong>Opción 1:</strong> La carga la hace manual transcribiendo (Recomendado).<br/>
