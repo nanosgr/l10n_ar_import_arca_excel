@@ -83,6 +83,14 @@ LIBRO_COMPRAS_OTHER_TRIBUTES_COLUMNS = [
     ('otros_tributos', 'Importe Otros Tributos', 'Otros Tributos'),
 ]
 
+# Nombres exactos (o candidatos) de los impuestos de percepción a buscar en
+# account.tax para el 'Libro de Compras'. 'Percepción IVA' tiene dos variantes
+# según la alícuota de IVA asociada (ver _analyze_libro_compras).
+TAX_NAME_PERC_GANANCIAS = ['Perc Gananc', 'Percepción Ganancias']
+TAX_NAME_PERC_IIBB = ['P. IIBB MZA', 'Percepción IIBB Mendoza']
+TAX_NAME_PERC_IVA_3 = ['Perc IVA (3 %)']
+TAX_NAME_PERC_IVA_15 = ['Perc IVA (1,5 %)']
+
 
 class L10nArImportArcaWizard(models.TransientModel):
     _name = 'l10n_ar.arca.import.wizard'
@@ -731,6 +739,49 @@ class L10nArImportArcaWizard(models.TransientModel):
             ('company_id', '=', self.company_id.id)
         ], limit=1)
 
+    def _get_percepcion_tax(self, name_candidates, type_tax_use):
+        # Busca un impuesto de percepción (Ganancias/IIBB/IVA) por nombre exacto,
+        # probando cada candidato en 'name_candidates' (ej. nombre corto del
+        # impuesto y su descripción larga).
+        name_domain = ['|'] * (len(name_candidates) - 1) + [('name', '=', n) for n in name_candidates]
+        return self.env['account.tax'].search([
+            ('company_id', '=', self.company_id.id),
+            ('type_tax_use', '=', type_tax_use),
+            ('active', '=', True),
+        ] + name_domain, limit=1)
+
+    def _force_percepcion_amount(self, move, tax, declared_amount):
+        """ Sobrescribe el importe de la línea de impuesto que Odoo calculó
+        automáticamente para una percepción (Ganancias/IIBB/Percepción IVA)
+        adjunta a la línea de Neto Gravado IVA de mayor monto, para que
+        coincida exactamente con el importe declarado por ARCA en el 'Libro
+        de Compras' (que ARCA calcula sobre una base distinta a la de esa
+        única línea, por lo que el % nominal del impuesto no reproduce ese
+        valor). Ajusta la contrapartida (línea de Proveedores) para mantener
+        el asiento balanceado. """
+        tax_line = move.line_ids.filtered(lambda l: l.tax_line_id == tax)[:1]
+        counterpart = move.line_ids.filtered(
+            lambda l: l.account_id.account_type in ('liability_payable', 'asset_receivable'))[:1]
+        if not tax_line or not counterpart:
+            return
+
+        def _debit_credit(balance):
+            return {'debit': balance, 'credit': 0.0} if balance >= 0 else {'debit': 0.0, 'credit': -balance}
+
+        sign = 1 if tax_line.balance >= 0 else -1
+        new_balance = sign * declared_amount
+        delta = new_balance - tax_line.balance
+        new_counterpart_balance = counterpart.balance - delta
+
+        tax_line.with_context(check_move_validity=False).write(
+            {**_debit_credit(new_balance), 'amount_currency': new_balance})
+        counterpart.with_context(check_move_validity=False).write(
+            {**_debit_credit(new_counterpart_balance), 'amount_currency': new_counterpart_balance})
+
+        move._compute_amount()
+        if hasattr(move, '_compute_tax_totals'):
+            move._compute_tax_totals()
+
     def _find_existing_move(self, partner_name, line_move_type, doc_type, target_partners, pos_int, num_int, date):
         candidates = [
             f"{pos_int:05d}-{num_int:08d}",
@@ -925,24 +976,43 @@ class L10nArImportArcaWizard(models.TransientModel):
             # --- Líneas de factura: base gravada / no gravada / exenta ---
             invoice_lines_data = []
             declared_components_total = 0.0
+            # rate -> (índice en invoice_lines_data, monto neto), solo para tasas
+            # con importe > 0. Se usa para asociar las percepciones (Ganancias,
+            # IIBB, Percepción IVA) a la línea de Neto Gravado de mayor monto.
+            rate_line_index = {}
 
             for rate, neto_col, iva_col in LIBRO_COMPRAS_TAX_RATE_COLUMNS:
                 amount_neto = _safe_float(val(neto_col))
                 declared_components_total += amount_neto
+                declared_iva_amount = _safe_float(val(iva_col)) if iva_col else 0.0
                 if iva_col:
-                    declared_components_total += _safe_float(val(iva_col))
+                    declared_components_total += declared_iva_amount
                 if not amount_neto:
                     continue
                 tax = self._find_tax(rate, type_tax_use)
                 if not tax:
                     status = 'error'
                     error_msgs.append(f"No se encontró Impuesto {rate:g}% {type_tax_use}.")
-                else:
-                    invoice_lines_data.append({
-                        'price_unit': amount_neto,
-                        'tax_ids': [tax.id],
-                        'name': f'Importe Gravado {rate:g}%'
-                    })
+                    continue
+
+                # --- Corroboración: IVA calculado por Odoo vs. declarado por ARCA ---
+                if iva_col:
+                    computed = tax.compute_all(amount_neto, currency=company_currency, quantity=1.0)
+                    computed_iva_amount = sum(t['amount'] for t in computed['taxes'])
+                    if abs(computed_iva_amount - declared_iva_amount) > 0.10:
+                        status = 'error'
+                        error_msgs.append(
+                            "El IVA {:g}% calculado (${:,.2f}) sobre el Neto Gravado (${:,.2f}) no coincide con "
+                            "el declarado en el archivo (${:,.2f}, diferencia ${:,.2f}). Verifique el comprobante en ARCA."
+                            .format(rate, computed_iva_amount, amount_neto, declared_iva_amount,
+                                    computed_iva_amount - declared_iva_amount))
+
+                invoice_lines_data.append({
+                    'price_unit': amount_neto,
+                    'tax_ids': [tax.id],
+                    'name': f'Importe Gravado {rate:g}%'
+                })
+                rate_line_index[rate] = (len(invoice_lines_data) - 1, amount_neto)
 
             amount_ng = _safe_float(val('Importe No Gravado'))
             if amount_ng:
@@ -976,6 +1046,12 @@ class L10nArImportArcaWizard(models.TransientModel):
                     'name': 'Operaciones Exentas'
                 })
 
+            # Antes de agregar Municipales/Internos/percepciones: si a esta altura
+            # no hay ninguna línea de base gravada/no gravada/exenta, es un
+            # comprobante sin discriminar (típ. Factura C monotributista) y se
+            # resuelve más abajo con el remanente como línea única.
+            has_base_lines = bool(invoice_lines_data)
+
             # --- Percepciones / Otros Tributos discriminados ---
             # Se guardan en la línea para revisión y se agregan como líneas de
             # factura recién en action_import (usando el impuesto/cuenta que se
@@ -989,6 +1065,73 @@ class L10nArImportArcaWizard(models.TransientModel):
                 tribute_total += amount
 
             credito_fiscal_computable = _safe_float(val('Crédito Fiscal Computable'))
+
+            # --- Impuestos Municipales / Internos: mismo tratamiento que un Neto
+            # Gravado IVA (línea propia, sin impuesto asociado, misma cuenta
+            # contable que las líneas de Neto Gravado: no se fija account_id acá,
+            # así hereda el override del wizard o la cuenta por defecto). ---
+            if tribute_amounts['imp_municipales']:
+                invoice_lines_data.append({
+                    'price_unit': tribute_amounts['imp_municipales'],
+                    'tax_ids': [],
+                    'name': 'Impuestos Municipales'
+                })
+            if tribute_amounts['imp_internos']:
+                invoice_lines_data.append({
+                    'price_unit': tribute_amounts['imp_internos'],
+                    'tax_ids': [],
+                    'name': 'Impuestos Internos'
+                })
+
+            # --- Percepciones (Ganancias / IIBB / IVA): se asocian como impuesto
+            # adicional en la línea de Neto Gravado IVA de mayor monto (una sola
+            # línea, aunque haya varias alícuotas). El importe calculado por Odoo
+            # sobre esa única línea normalmente NO coincide con el declarado por
+            # ARCA (que lo calcula sobre otra base), así que se fuerza el importe
+            # exacto sobre la línea de impuesto ya creada, recién en action_import
+            # (una vez creado el asiento). Acá solo se resuelve el impuesto a
+            # aplicar y se agrega su id al tax_ids de la línea elegida.
+            forced_tax_amounts = []
+            general_max_rate = max(rate_line_index, key=lambda r: rate_line_index[r][1]) if rate_line_index else None
+
+            def _attach_percepcion(target_rate, tax, amount, label):
+                if amount <= 0:
+                    return
+                if not tax:
+                    nonlocal status
+                    status = 'error'
+                    error_msgs.append(f"No se encontró el impuesto de percepción '{label}'.")
+                    return
+                if target_rate is not None and target_rate in rate_line_index:
+                    idx, _ = rate_line_index[target_rate]
+                    invoice_lines_data[idx]['tax_ids'].append(tax.id)
+                    forced_tax_amounts.append([tax.id, amount])
+                else:
+                    # Sin línea de Neto Gravado a la que asociarla (ej. Factura C
+                    # sin discriminar): se agrega como línea propia, best-effort.
+                    invoice_lines_data.append({
+                        'price_unit': amount,
+                        'tax_ids': [tax.id] if tax else [],
+                        'name': label,
+                    })
+
+            if tribute_amounts['perc_otros_imp_nacionales']:
+                tax_gan = self._get_percepcion_tax(TAX_NAME_PERC_GANANCIAS, type_tax_use)
+                _attach_percepcion(general_max_rate, tax_gan, tribute_amounts['perc_otros_imp_nacionales'], 'Percepción de Ganancias')
+
+            if tribute_amounts['perc_iibb']:
+                tax_iibb = self._get_percepcion_tax(TAX_NAME_PERC_IIBB, type_tax_use)
+                _attach_percepcion(general_max_rate, tax_iibb, tribute_amounts['perc_iibb'], 'Percepción de IIBB Mendoza')
+
+            perc_iva_total = tribute_amounts['perc_iva'] + tribute_amounts['otros_tributos']
+            if perc_iva_total:
+                if general_max_rate == 10.5:
+                    perc_iva_names, perc_iva_target = TAX_NAME_PERC_IVA_15, 10.5
+                else:
+                    perc_iva_names = TAX_NAME_PERC_IVA_3
+                    perc_iva_target = 21.0 if 21.0 in rate_line_index else general_max_rate
+                tax_perc_iva = self._get_percepcion_tax(perc_iva_names, type_tax_use)
+                _attach_percepcion(perc_iva_target, tax_perc_iva, perc_iva_total, 'Percepción de IVA')
 
             # --- Reconciliación del Importe Total contra sus componentes discriminados ---
             # ARCA a veces exporta comprobantes donde el Total no coincide con la suma de
@@ -1007,7 +1150,7 @@ class L10nArImportArcaWizard(models.TransientModel):
 
             # Comprobantes sin desglose de gravado/no gravado/exento (típ. Factura C):
             # se registra el remanente (Total - percepciones/tributos) como línea única.
-            if not invoice_lines_data and amount_total:
+            if not has_base_lines and amount_total:
                 remainder = amount_total - tribute_total
                 if is_c_type:
                     tax_nc = self._get_tax_by_xmlid_or_name(
@@ -1032,7 +1175,8 @@ class L10nArImportArcaWizard(models.TransientModel):
                 'journal_id': journal.id if journal else False,
                 'l10n_latam_document_type_id': doc_type.id if doc_type else False,
                 'l10n_latam_document_number': f"{pos_int:05d}-{num_int:08d}",
-                'invoice_line_ids': [(0, 0, line) for line in invoice_lines_data]
+                'invoice_line_ids': [(0, 0, line) for line in invoice_lines_data],
+                '_forced_tax_amounts': forced_tax_amounts,
             }
 
             try:
@@ -1776,6 +1920,7 @@ class L10nArImportArcaWizard(models.TransientModel):
                 continue
 
             vals = json.loads(line.invoice_values)
+            forced_tax_amounts = vals.pop('_forced_tax_amounts', [])
 
             # 1. Partner Creation if needed
             exist_partners = self.env['res.partner'].search(
@@ -1819,55 +1964,57 @@ class L10nArImportArcaWizard(models.TransientModel):
                         if len(cmd) == 3 and isinstance(cmd[2], dict):
                             cmd[2]['account_id'] = self.account_id.id
 
-                # --- OTROS TRIBUTOS LOGIC ---
+                # --- OTROS TRIBUTOS LOGIC (solo formato legado 'Mis Comprobantes') ---
                 # Se genera una línea de factura por cada percepción/tributo discriminado
-                # presente (Otros Tributos, Perc. Otros Imp. Nacionales, Perc. IIBB,
-                # Imp. Municipales, Perc. IVA, Imp. Internos). Todas usan por ahora el
-                # mismo impuesto/cuenta configurado en 'Otros Tributos' del wizard; el
-                # desglose por tipo ya queda en la línea de importación para cuando se
-                # diferencie el tratamiento contable de cada percepción.
-                tribute_values = [
-                    (label, getattr(line, fname))
-                    for fname, _col, label in LIBRO_COMPRAS_OTHER_TRIBUTES_COLUMNS
-                    if getattr(line, fname) > 0
-                ]
+                # presente. Todas usan el impuesto/cuenta configurado en 'Otros Tributos'
+                # del wizard. Para 'Libro de Compras' este esquema ya NO se usa: Municipales
+                # e Internos quedan resueltos como líneas propias desde el análisis, y
+                # Ganancias/IIBB/Percepción IVA se fuerzan sobre la línea de Neto Gravado
+                # de mayor monto más abajo (ver 'forced_tax_amounts').
+                tribute_values = []
                 otros_tributos_tax_tags = self.env['account.account.tag']
-                if tribute_values and self.tax_other_tributes_id:
-                    rep_lines = self.tax_other_tributes_id.invoice_repartition_line_ids if vals.get('move_type') in ('in_invoice', 'out_invoice') else self.tax_other_tributes_id.refund_repartition_line_ids
-                    tax_rep = rep_lines.filtered(lambda r: r.repartition_type == 'tax')
-                    tax_account_id = tax_rep[0].account_id.id if tax_rep and tax_rep[0].account_id else (self.account_id.id or False)
-                    otros_tributos_tax_tags = tax_rep[0].tag_ids if tax_rep else self.env['account.account.tag']
+                if line.source_format != 'libro_compras':
+                    tribute_values = [
+                        (label, getattr(line, fname))
+                        for fname, _col, label in LIBRO_COMPRAS_OTHER_TRIBUTES_COLUMNS
+                        if getattr(line, fname) > 0
+                    ]
+                    if tribute_values and self.tax_other_tributes_id:
+                        rep_lines = self.tax_other_tributes_id.invoice_repartition_line_ids if vals.get('move_type') in ('in_invoice', 'out_invoice') else self.tax_other_tributes_id.refund_repartition_line_ids
+                        tax_rep = rep_lines.filtered(lambda r: r.repartition_type == 'tax')
+                        tax_account_id = tax_rep[0].account_id.id if tax_rep and tax_rep[0].account_id else (self.account_id.id or False)
+                        otros_tributos_tax_tags = tax_rep[0].tag_ids if tax_rep else self.env['account.account.tag']
 
-                    # Fetch exempt tax (IVA No Corresponde) to avoid AFIP validation errors
-                    type_tax_use = 'purchase' if vals.get('move_type') in ('in_invoice', 'in_refund') else 'sale'
+                        # Fetch exempt tax (IVA No Corresponde) to avoid AFIP validation errors
+                        type_tax_use = 'purchase' if vals.get('move_type') in ('in_invoice', 'in_refund') else 'sale'
 
-                    suffix = 'ri_tax_vat_no_corresponde_compras' if type_tax_use == 'purchase' else 'ri_tax_vat_no_corresponde_ventas'
-                    xml_id = f"account.{self.env.company.id}_{suffix}"
-                    tax_nc = self.env.ref(xml_id, raise_if_not_found=False)
+                        suffix = 'ri_tax_vat_no_corresponde_compras' if type_tax_use == 'purchase' else 'ri_tax_vat_no_corresponde_ventas'
+                        xml_id = f"account.{self.env.company.id}_{suffix}"
+                        tax_nc = self.env.ref(xml_id, raise_if_not_found=False)
 
-                    if not tax_nc:
-                        tax_nc = self.env['account.tax'].search([
-                            ('company_id', '=', self.env.company.id),
-                            ('type_tax_use', '=', type_tax_use),
-                            '|', ('name', '=', 'IVA No Corresponde'), ('name', 'ilike', 'No Corresp')
-                        ], limit=1)
+                        if not tax_nc:
+                            tax_nc = self.env['account.tax'].search([
+                                ('company_id', '=', self.env.company.id),
+                                ('type_tax_use', '=', type_tax_use),
+                                '|', ('name', '=', 'IVA No Corresponde'), ('name', 'ilike', 'No Corresp')
+                            ], limit=1)
 
-                    if not vals.get('invoice_line_ids'):
-                        vals['invoice_line_ids'] = []
+                        if not vals.get('invoice_line_ids'):
+                            vals['invoice_line_ids'] = []
 
-                    for label, amount in tribute_values:
-                        vals['invoice_line_ids'].append((0, 0, {
-                            'name': label,
-                            'quantity': 1,
-                            'price_unit': amount,
-                            'account_id': tax_account_id,
-                            'tax_ids': [(6, 0, tax_nc.ids)] if tax_nc else [],
-                            'analytic_distribution': self.analytic_distribution or False,
-                        }))
+                        for label, amount in tribute_values:
+                            vals['invoice_line_ids'].append((0, 0, {
+                                'name': label,
+                                'quantity': 1,
+                                'price_unit': amount,
+                                'account_id': tax_account_id,
+                                'tax_ids': [(6, 0, tax_nc.ids)] if tax_nc else [],
+                                'analytic_distribution': self.analytic_distribution or False,
+                            }))
 
                 move = self.env['account.move'].create(vals)
 
-                # Append Perception Tax Grids post-creation
+                # Append Perception Tax Grids post-creation (formato legado)
                 if tribute_values and self.tax_other_tributes_id and otros_tributos_tax_tags:
                     tribute_labels = {label for label, _amount in tribute_values}
                     ot_lines = move.invoice_line_ids.filtered(lambda l: l.name in tribute_labels)
@@ -1876,6 +2023,14 @@ class L10nArImportArcaWizard(models.TransientModel):
                         ot_lines.with_context(check_move_validity=False).write({
                             'tax_tag_ids': [(4, t.id) for t in otros_tributos_tax_tags]
                         })
+
+                # --- Percepciones 'Libro de Compras' (Ganancias/IIBB/Percepción IVA) ---
+                # Se fuerza el importe exacto declarado por ARCA en la línea de impuesto
+                # ya generada por Odoo sobre la línea de Neto Gravado de mayor monto.
+                if line.source_format == 'libro_compras' and forced_tax_amounts:
+                    for tax_id, forced_amount in forced_tax_amounts:
+                        forced_tax = self.env['account.tax'].browse(int(tax_id))
+                        self._force_percepcion_amount(move, forced_tax, float(forced_amount))
 
                 # --- CHATTER & CAE LOGIC ---
                 msg_body = Markup(

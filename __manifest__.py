@@ -1,6 +1,6 @@
 {
     'name': 'L10n Ar Import Arca Excel - Importación de Mis Comprobantes',
-    'version': '18.0.1.8.0',
+    'version': '18.0.1.9.0',
     'category': 'Accounting',
     'summary': 'Importe masivamente facturas de compra y venta desde Excel/CSV de ARCA. Automatice la carga de datos y evite errores manuales.',
     'description': """
