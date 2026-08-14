@@ -88,8 +88,6 @@ LIBRO_COMPRAS_OTHER_TRIBUTES_COLUMNS = [
 # según la alícuota de IVA asociada (ver _analyze_libro_compras).
 TAX_NAME_PERC_GANANCIAS = ['Perc Gananc', 'Percepción Ganancias']
 TAX_NAME_PERC_IIBB = ['P. IIBB MZA', 'Percepción IIBB Mendoza']
-TAX_NAME_PERC_IVA_3 = ['Perc IVA (3 %)']
-TAX_NAME_PERC_IVA_15 = ['Perc IVA (1,5 %)']
 
 
 class L10nArImportArcaWizard(models.TransientModel):
@@ -703,12 +701,18 @@ class L10nArImportArcaWizard(models.TransientModel):
         # Búsqueda aproximada de impuestos por monto
         # ARCA columns: "IVA 21%", "IVA 10,5%", "IVA 27%"
         # amount es el valor porcentual (21.0, 10.5)
-        # Buscar impuesto activo de ese tipo
+        # Buscar impuesto activo de ese tipo, de la compañía del wizard. Sin el
+        # filtro de company_id, bajo un usuario con acceso a varias compañías
+        # (ej. Superusuario, usado por el endpoint de importación automática,
+        # que no aplica las reglas de registro que normalmente ocultan
+        # impuestos de otras compañías) esto podía traer el impuesto de OTRA
+        # compañía y romper la factura con "Incompatible companies".
         taxes = self.env['account.tax'].search([
             ('type_tax_use', '=', type_tax_use),
             ('amount', '=', amount),
             ('amount_type', '=', 'percent'),
             ('country_id.code', '=', 'AR'),
+            ('company_id', '=', self.company_id.id),
             ('active', '=', True)
         ])
         return taxes[0] if taxes else False
@@ -739,16 +743,36 @@ class L10nArImportArcaWizard(models.TransientModel):
             ('company_id', '=', self.company_id.id)
         ], limit=1)
 
-    def _get_percepcion_tax(self, name_candidates, type_tax_use):
-        # Busca un impuesto de percepción (Ganancias/IIBB/IVA) por nombre exacto,
-        # probando cada candidato en 'name_candidates' (ej. nombre corto del
-        # impuesto y su descripción larga).
+    def _get_percepcion_tax(self, name_candidates, type_tax_use, ilike_fallback=None):
+        # Busca un impuesto de percepción (Ganancias/IIBB) por nombre exacto,
+        # probando cada candidato en 'name_candidates'. Si no encuentra nada
+        # (ej. diferencias de espacios/formato en el nombre real cargado en
+        # Odoo), cae a una búsqueda parcial ('ilike') con 'ilike_fallback'.
+        base_domain = [
+            ('company_id', '=', self.company_id.id),
+            ('type_tax_use', '=', type_tax_use),
+            ('active', '=', True),
+        ]
         name_domain = ['|'] * (len(name_candidates) - 1) + [('name', '=', n) for n in name_candidates]
+        tax = self.env['account.tax'].search(base_domain + name_domain, limit=1)
+        if not tax and ilike_fallback:
+            tax = self.env['account.tax'].search(base_domain + [('name', 'ilike', ilike_fallback)], limit=1)
+        return tax
+
+    def _get_percepcion_iva_tax(self, rate, type_tax_use):
+        # 'Percepción de IVA' tiene dos variantes en el catálogo (ej. 3% para
+        # netos gravados al 21%, 1,5% para netos al 10,5%). Se identifica por
+        # la alícuota real del impuesto (amount) en vez del string exacto del
+        # nombre, que es frágil ante diferencias de formato (ej. "Perc IVA
+        # (3 %)" vs "Perc IVA (3%)" con espacio distinto antes del %).
         return self.env['account.tax'].search([
             ('company_id', '=', self.company_id.id),
             ('type_tax_use', '=', type_tax_use),
             ('active', '=', True),
-        ] + name_domain, limit=1)
+            ('amount_type', '=', 'percent'),
+            ('amount', '=', rate),
+            ('name', 'ilike', 'IVA'),
+        ], limit=1)
 
     def _force_percepcion_amount(self, move, tax, declared_amount):
         """ Sobrescribe el importe de la línea de impuesto que Odoo calculó
@@ -1034,10 +1058,14 @@ class L10nArImportArcaWizard(models.TransientModel):
                     continue
 
                 # --- Corroboración: IVA calculado por Odoo vs. declarado por ARCA ---
+                # Tolerancia de $3: en datos reales aparecen diferencias de
+                # centavos por redondeo propio de ARCA (no siempre coincide
+                # con el cálculo estándar de Odoo sobre el neto), sin ser un
+                # error real del comprobante.
                 if iva_col:
                     computed = tax.compute_all(amount_neto, currency=invoice_currency, quantity=1.0)
                     computed_iva_amount = sum(t['amount'] for t in computed['taxes'])
-                    if abs(computed_iva_amount - declared_iva_amount) > 0.10:
+                    if abs(computed_iva_amount - declared_iva_amount) > 3.0:
                         status = 'error'
                         error_msgs.append(
                             "El IVA {:g}% calculado (${:,.2f}) sobre el Neto Gravado (${:,.2f}) no coincide con "
@@ -1154,21 +1182,21 @@ class L10nArImportArcaWizard(models.TransientModel):
                     })
 
             if tribute_amounts['perc_otros_imp_nacionales']:
-                tax_gan = self._get_percepcion_tax(TAX_NAME_PERC_GANANCIAS, type_tax_use)
+                tax_gan = self._get_percepcion_tax(TAX_NAME_PERC_GANANCIAS, type_tax_use, ilike_fallback='Gananc')
                 _attach_percepcion(general_max_rate, tax_gan, tribute_amounts['perc_otros_imp_nacionales'], 'Percepción de Ganancias')
 
             if tribute_amounts['perc_iibb']:
-                tax_iibb = self._get_percepcion_tax(TAX_NAME_PERC_IIBB, type_tax_use)
+                tax_iibb = self._get_percepcion_tax(TAX_NAME_PERC_IIBB, type_tax_use, ilike_fallback='IIBB')
                 _attach_percepcion(general_max_rate, tax_iibb, tribute_amounts['perc_iibb'], 'Percepción de IIBB Mendoza')
 
             perc_iva_total = tribute_amounts['perc_iva'] + tribute_amounts['otros_tributos']
             if perc_iva_total:
                 if general_max_rate == 10.5:
-                    perc_iva_names, perc_iva_target = TAX_NAME_PERC_IVA_15, 10.5
+                    perc_iva_rate, perc_iva_target = 1.5, 10.5
                 else:
-                    perc_iva_names = TAX_NAME_PERC_IVA_3
+                    perc_iva_rate = 3.0
                     perc_iva_target = 21.0 if 21.0 in rate_line_index else general_max_rate
-                tax_perc_iva = self._get_percepcion_tax(perc_iva_names, type_tax_use)
+                tax_perc_iva = self._get_percepcion_iva_tax(perc_iva_rate, type_tax_use)
                 _attach_percepcion(perc_iva_target, tax_perc_iva, perc_iva_total, 'Percepción de IVA')
 
             # --- Reconciliación del Importe Total contra sus componentes discriminados ---
