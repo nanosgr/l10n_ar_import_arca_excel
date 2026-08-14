@@ -1,6 +1,6 @@
 {
     'name': 'L10n Ar Import Arca Excel - Importación de Mis Comprobantes',
-    'version': '18.0.1.10.0',
+    'version': '18.0.1.11.0',
     'category': 'Accounting',
     'summary': 'Importe masivamente facturas de compra y venta desde Excel/CSV de ARCA. Automatice la carga de datos y evite errores manuales.',
     'description': """
@@ -19,6 +19,7 @@ Características Principales
 *   **Gestión de Partners:** Busca partners por CUIT y los crea automáticamente si no existen en el sistema.
 *   **Historial de Auditoría:** Mantiene un registro detallado de todas las importaciones realizadas para facilitar el control.
 *   **Integración CIE:** Transcribe automáticamente el Código de Autorización Electrónico (CAE) a las facturas (no disponible al importar desde "Libro de Compras", que no incluye ese dato).
+*   **Importación Automática (API):** Endpoint HTTP (``/l10n_ar_arca_import/upload``) para que un proceso externo (ej. un scraper programado) suba el CSV del "Libro de Compras" y dispare el análisis e importación sin intervención de un usuario. Requiere configurar los parámetros del sistema ``l10n_ar_import_arca_excel.api_token`` (token secreto) y opcionalmente ``l10n_ar_import_arca_excel.notification_email`` (para recibir un resumen por correo de cada corrida).
 
 Uso
 ---
