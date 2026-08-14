@@ -2,6 +2,7 @@ import base64
 import hmac
 import logging
 
+import odoo
 from odoo import http
 from odoo.http import request
 
@@ -32,7 +33,14 @@ class ArcaImportController(http.Controller):
             return request.make_json_response(
                 {'success': False, 'error': "Falta o es inválido el parámetro 'company_id'."}, status=400)
 
-        company = request.env['res.company'].sudo().browse(company_id)
+        # 'auth=none' deja request.env sin un usuario real vinculado
+        # (env.uid vacío), lo que rompe cualquier cómputo interno de Odoo que
+        # haga self.env.user (ej. account_accountant._compute_signing_user).
+        # Se rebindea el entorno a un usuario real (Superusuario) para que
+        # todo el flujo se comporte como si lo ejecutara un usuario logueado.
+        env = request.env(user=odoo.SUPERUSER_ID)
+
+        company = env['res.company'].browse(company_id)
         if not company.exists():
             return request.make_json_response(
                 {'success': False, 'error': f"La compañía {company_id} no existe."}, status=400)
@@ -40,7 +48,7 @@ class ArcaImportController(http.Controller):
         filename = upload.filename or 'libro_compras.csv'
         file_content = upload.read()
 
-        wizard = request.env['l10n_ar.arca.import.wizard'].sudo().with_company(company).create({
+        wizard = env['l10n_ar.arca.import.wizard'].with_company(company).create({
             'file_data': base64.b64encode(file_content),
             'filename': filename,
             'company_id': company.id,
@@ -51,7 +59,7 @@ class ArcaImportController(http.Controller):
             wizard.action_analyze()
         except Exception as e:
             _logger.exception("Error al analizar '%s' (Libro de Compras, API)", filename)
-            self._send_notification_email(company, filename, error=str(e))
+            self._send_notification_email(env, company, filename, error=str(e))
             return request.make_json_response({'success': False, 'error': f"Error al analizar: {e}"})
 
         # Se guarda el estado post-análisis para poder distinguir, después de
@@ -63,11 +71,11 @@ class ArcaImportController(http.Controller):
             wizard.action_import()
         except Exception as e:
             _logger.exception("Error al importar '%s' (Libro de Compras, API)", filename)
-            self._send_notification_email(company, filename, error=str(e))
+            self._send_notification_email(env, company, filename, error=str(e))
             return request.make_json_response({'success': False, 'error': f"Error al importar: {e}"})
 
         summary = self._build_summary(wizard, pre_status)
-        self._send_notification_email(company, filename, summary=summary)
+        self._send_notification_email(env, company, filename, summary=summary)
         _logger.info(
             "Importación ARCA (API) '%s' compañía %s: %s nuevas, %s ya existentes, %s con error",
             filename, company.name, summary['imported_count'], summary['duplicates_count'],
@@ -107,9 +115,8 @@ class ArcaImportController(http.Controller):
             'errors': [_line_info(line) for line in failed],
         }
 
-    def _send_notification_email(self, company, filename, summary=None, error=None):
-        to_email = request.env['ir.config_parameter'].sudo().get_param(
-            'l10n_ar_import_arca_excel.notification_email')
+    def _send_notification_email(self, env, company, filename, summary=None, error=None):
+        to_email = env['ir.config_parameter'].get_param('l10n_ar_import_arca_excel.notification_email')
         if not to_email:
             return
 
@@ -143,8 +150,13 @@ class ArcaImportController(http.Controller):
                     </table>
                 """
 
-        request.env['mail.mail'].sudo().create({
-            'subject': subject,
-            'body_html': body,
-            'email_to': to_email,
-        }).send()
+        try:
+            env['mail.mail'].create({
+                'subject': subject,
+                'body_html': body,
+                'email_to': to_email,
+            }).send()
+        except Exception:
+            # Un servidor sin remitente configurado (típico en Staging) no
+            # debe hacer fallar la importación en sí, que ya se completó.
+            _logger.exception("No se pudo enviar el mail de notificación de importación ARCA")
